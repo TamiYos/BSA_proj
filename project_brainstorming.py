@@ -24,9 +24,14 @@ def main():
     # plot_peak_patterns(folders_to_iter, plots=True)
     # print(get_waves_and_labels(folders_to_iter))
     # print(combine_wavs_by_communicators(folders_to_iter)['by_maker']['grouped_peaks'].keys())
+
+
     final_dict = combine_wavs_by_communicators(folders_to_iter)
+
+    ideal_picks = get_individual_ideal_peak(final_dict, peak_width_determination_method='mean')
+
     # print(len(final_dict['by_maker']['grouped_peaks']['BMR2']))
-    plot_peak_on_grouped_data(final_dict)
+    # plot_peak_on_grouped_data(final_dict)
 
 
 def get_wav_data(file_path):
@@ -233,14 +238,19 @@ def combine_wavs_by_communicators(folders_to_iter, sigma=30):
         Also, groups all arrays of the peaks in dictionaries in the same order.
         Finally returns a dictionary: 
         {
-            'by_maker' : {'grouped_data' : noise makers data dictionary, ..., # SORRY IM TOO LAZY TO TYPE ALL JUST PRINT IT OUT POR FAVORRRRR :)
-                            'grouped_peaks' : noise makers peaks dictionary},
-            'by_receiver' : {'grouped_data' : noise receivers data dictionary, ...,
-                            'grouped_peaks' : noise receivers peaks dictionary},
-            'by_both' : {'grouped_data' : both labels data dictionary, ...,
-                        'grouped_peaks' : both labels peaks dictionary}
+            'by_maker' : 
+            {
+                'grouped_data' : the data in the wav file, all the files from all folders grouped by noise maker,
+                'filtered_data' : the same as in grouped_data but with gaussian filter applied,
+                'grouped_peaks' : list of the peak values from the file,
+                'grouped_intervals' : list of the peak indexes as they appear in the filtered data and the grouped data lists
+                'grouped_widths' : list of the peak widths (how long in time the peak lasted),
+                'grouped_heights' : list of the peak heights (the amplitude of the peak as the distance from the noise floor)
+            },
+            'by_receiver' : { The same as above but grouped by noise receiver},
+            'by_both' : { The same as above but grouped by both noise maker and receiver}
         }
-        '''
+    '''
     
     labeled_wavs = get_waves_and_labels(folders_to_iter)
     data_types = ['grouped_data', 'filtered_data', 'grouped_peaks', 'grouped_intervals', 'grouped_widths', 'grouped_heights']
@@ -275,6 +285,45 @@ def combine_wavs_by_communicators(folders_to_iter, sigma=30):
         #         print(noise_maker, noise_receiver, len(d))
 
     return final 
+
+
+def get_individual_ideal_peak(combined_wavs_by_communicators, peak_width_determination_method='min'):
+    '''
+    Description
+    ------------
+    Based on the data from the combined_wavs_by_communicators function, this function will calculate the ideal peak width for each individual,
+    to be then used to cross correlate against to establish the probability distribution of wheter a recording is from the same individual or not.
+    Same logic goes for whom was addressed in the recording.
+
+    Parameters
+    ------------
+    combined_wavs_by_communicators : dict
+        The dictionary returned by the combined_wavs_by_communicators function
+    method : str
+        The method used to calculate the ideal peak width, either 'mean', 'median' or 'min'
+        mean will calculate the mean width of peaks, then pad or trim peaks simmetrically to this width,
+        median will calculate the median width of peaks, then pad or trim peaks simmetrically to this width,
+        min will calculate the minimum width peak and trim all other peaks to this width.
+        Irespective of the method, the cleaned list of peaks will be the same length for an individual and will then be averaged to get the ideal peak.
+
+    Returns
+    ------------
+    ideal_peaks_noise_maker : dict
+        A dictionary with the noise maker as the key and the ideal peak as the value
+    ideal_peaks_noise_receiver : dict
+        A dictionary with the noise receiver as the key and the ideal peak as the value
+    '''
+
+    ideal_peaks_noise_maker = {}
+    ideal_peaks_noise_receiver = {}
+
+
+    for noise_maker, noise_receiver in zip(combined_wavs_by_communicators['by_maker'], combined_wavs_by_communicators['by_receiver']):
+        print(noise_maker)
+        print(noise_receiver)
+
+
+    return ideal_peaks_noise_maker, ideal_peaks_noise_receiver
 
 
 def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both', n_rows=5):
