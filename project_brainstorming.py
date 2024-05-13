@@ -81,7 +81,7 @@ def plot_spectograph_spectogram(folders_to_iter):
         plt.show()
     
 
-def find_peak_pattern(wav_data):
+def find_peak_pattern(wav_data, div_width_by=1.5):
 
     # Find the indices of the peaks in the filtered data
     filtered_peaks = find_peaks(wav_data)[0]
@@ -94,13 +94,16 @@ def find_peak_pattern(wav_data):
     # Isolating the peak width of the "best peak"
     peak_wid = peak_widths_data[best_peak_index]
     # Finding the indices of the entire peak, from its estimated start to end, according to the peak itself and its width
-    start = int(filtered_peaks[best_peak_index] - peak_wid/1.3) # The denominator in the division here and below can be decreased/increased if we want more/less data points around that peak
-    end = int(filtered_peaks[best_peak_index] + peak_wid/1.3)
+    start = int(filtered_peaks[best_peak_index] - peak_wid/div_width_by) # The denominator in the division here and below can be decreased/increased if we want more/less data points around that peak
+    end = int(filtered_peaks[best_peak_index] + peak_wid/div_width_by)
     # The peak interval indices will be np.arange(start, end+1, 1) but to *plot it* we need to multiply it by dt
     interval = np.arange(start, end+1, 1)
     
     idealized_peak = wav_data[interval]
-    return idealized_peak, interval, peak_wid, filtered_peaks, best_peak_index
+    
+    # Find the height of the peak
+    peak_height = idealized_peak.max() - np.mean(np.array([idealized_peak[0], idealized_peak[-1]]))
+    return idealized_peak, interval, peak_wid, peak_height, filtered_peaks, best_peak_index
 
 
 def plot_peak_patterns(folders_to_iter, sigma=30, plots=False):
@@ -124,7 +127,7 @@ def plot_peak_patterns(folders_to_iter, sigma=30, plots=False):
             # Filter data (gaussian filter)
             smoothed_curve = gaussian_filter(data, sigma=sigma)
             # Get peak data
-            idealized_peak, interval, peak_wid, filtered_peaks, best_peak_index =  find_peak_pattern(smoothed_curve)
+            idealized_peak, interval, peak_wid, peak_height, filtered_peaks, best_peak_index =  find_peak_pattern(smoothed_curve)
 
             if plots:
                 # Plot the raw data
@@ -184,19 +187,21 @@ def get_waves_and_labels(folders_to_iter):
     return labeled_wavs
 
 
-def add_to_dict(data_dict, filtered_dict, peaks_dict, intervals_dict, widths_dict, key, data_list, filtered_list, peaks_list, intervals_list, widths_list):
+def add_to_dict(data_dict, filtered_dict, peaks_dict, intervals_dict, widths_dict, heights_dict, key, data_list, filtered_list, peaks_list, intervals_list, widths_list, heights_list):
     if key not in data_dict:
         data_dict[key] = data_list
         filtered_dict[key] = filtered_list
         peaks_dict[key] = peaks_list
         intervals_dict[key] = intervals_list
         widths_dict[key] = widths_list
+        heights_dict[key] = heights_list
     else:
         data_dict[key].extend(data_list)
         filtered_dict[key].extend(filtered_list)
         peaks_dict[key].extend(peaks_list)
         intervals_dict[key].extend(intervals_list)
         widths_dict[key].extend(widths_list)
+        heights_dict[key].extend(heights_list)
 
 
 def combine_wavs_by_communicators(folders_to_iter, sigma=30):
@@ -217,7 +222,7 @@ def combine_wavs_by_communicators(folders_to_iter, sigma=30):
         '''
     
     labeled_wavs = get_waves_and_labels(folders_to_iter)
-    data_types = ['grouped_data', 'filtered_data', 'grouped_peaks', 'grouped_intervals', 'grouped_widths']
+    data_types = ['grouped_data', 'filtered_data', 'grouped_peaks', 'grouped_intervals', 'grouped_widths', 'grouped_heights']
     group_by = ['by_maker', 'by_receiver', 'by_both']
 
     final = {group : {data_type : {} for data_type in data_types} for group in group_by}
@@ -226,16 +231,18 @@ def combine_wavs_by_communicators(folders_to_iter, sigma=30):
         peaks = []
         intervals = []
         peak_widths = []
+        peak_heights = []
         filtered = []
         for wav_array in wav_data:
             filtered_data = gaussian_filter(wav_array, sigma=sigma)
             filtered.append(filtered_data)
-            peak, interval, peak_wid = find_peak_pattern(filtered_data)[:3]
+            peak, interval, peak_wid, peak_height = find_peak_pattern(filtered_data)[:4]
             peaks.append(peak)
             intervals.append(interval)
             peak_widths.append(peak_wid)
+            peak_heights.append(peak_height)
 
-        all_data = [wav_data, filtered, peaks, intervals, peak_widths]
+        all_data = [wav_data, filtered, peaks, intervals, peak_widths, peak_heights]
         # Group WAV data arrays by noise maker and receiver names
         keys = [noise_maker, noise_receiver, (noise_maker, noise_receiver)]
         for i, group in enumerate(group_by):
@@ -249,7 +256,7 @@ def combine_wavs_by_communicators(folders_to_iter, sigma=30):
     return final 
 
 
-def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_maker', n_rows=5):
+def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both', n_rows=5):
     
     data_dict = final_dict[by]
     keys = data_dict['grouped_data'].keys()
@@ -264,6 +271,7 @@ def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_maker', n_ro
         filtered_data = data_dict['filtered_data'][individual]
         peaks = data_dict['grouped_peaks'][individual]
         peak_intervals = data_dict['grouped_intervals'][individual]
+        peak_heights = data_dict['grouped_heights'][individual]
 
         axes[0,0].set_title('Unfiltered Signal')
         axes[0,1].set_title('Filtered Signal')
@@ -280,7 +288,9 @@ def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_maker', n_ro
             ax = axes[sample, 1]
             ax.plot(np.arange(0, raw_data[sample].shape[-1])*dt, filtered_data[sample])
             ax.plot(peak_intervals[sample]*dt, peaks[sample], c='r', lw=4, alpha=0.6)
-        
+            
+            print(peak_heights[sample])
+
         fig.suptitle(individual)
         ax.legend(['data', 'idealized peak'], loc='best')
         plt.show()
