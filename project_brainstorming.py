@@ -1,11 +1,32 @@
+import os
+import glob
+import random
+import platform
+import numpy as np
 from scipy.io import wavfile
 import matplotlib.pyplot as plt
 from scipy.ndimage import gaussian_filter
 from scipy.signal import find_peaks, peak_widths
-import numpy as np
-import glob
-import os
-import random
+
+def main():
+    random.seed(5)
+    
+    if platform.system() == 'Windows':
+        folder_path = os.path.normcase('C:/Data/BSA_proj/Segmented_signals')
+    else:
+        folder_path = os.path.normcase('/Users/Omer/Downloads/Segmented_signals/')
+
+    # Get a list of all files in the folder matching a specific pattern
+    folders = glob.glob(os.path.join(folder_path, '*'))
+    folders_to_iter = random.sample(folders, 8)
+
+    # plot_spectograph_spectogram(folders_to_iter)
+    # plot_peak_patterns(folders_to_iter, plots=True)
+    # print(get_waves_and_labels(folders_to_iter))
+    # print(combine_wavs_by_communicators(folders_to_iter)['by_maker']['grouped_peaks'].keys())
+    final_dict = combine_wavs_by_communicators(folders_to_iter)
+    # print(len(final_dict['by_maker']['grouped_peaks']['BMR2']))
+    plot_peak_on_grouped_data(final_dict)
 
 
 def get_wav_data(file_path):
@@ -295,19 +316,5 @@ def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both', n_row
         ax.legend(['data', 'idealized peak'], loc='best')
         plt.show()
 
-
-random.seed(5)
-
-folder_path = '/Users/Omer/Documents/DirectPhD/BSA/Final project/Signals/Segmented_signals'
-
-# Get a list of all files in the folder matching a specific pattern
-folders = glob.glob(os.path.join(folder_path, '*'))
-folders_to_iter = random.sample(folders, 8)
-
-# plot_spectograph_spectogram(folders_to_iter)
-# plot_peak_patterns(folders_to_iter, plots=True)
-# print(get_waves_and_labels(folders_to_iter))
-# print(combine_wavs_by_communicators(folders_to_iter)['by_maker']['grouped_peaks'].keys())
-final_dict = combine_wavs_by_communicators(folders_to_iter)
-# print(len(final_dict['by_maker']['grouped_peaks']['BMR2']))
-plot_peak_on_grouped_data(final_dict)
+if __name__ == '__main__':
+    main()
