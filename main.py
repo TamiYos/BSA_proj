@@ -1,15 +1,21 @@
 import os
 import glob
 import platform
-
 import numpy as np
 from scipy.io import wavfile
 import matplotlib.pyplot as plt
+from datasets import load_dataset
 from scipy.ndimage import gaussian_filter
 
 
 
 def main():
+
+    # Uncomment the following lines to load the GTZAN dataset.
+    # It will be saved to '~/.cache/huggingface...' and needs to be deleted manually for this to work again.
+    # gtzan = load_dataset("marsyas/gtzan", "all")
+    # print(gtzan)
+    
     if platform.system() == 'Windows':
         folder_path = os.path.normcase('C:/Data/BSA_proj/Segmented_signals')
     else:
