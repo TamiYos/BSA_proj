@@ -314,24 +314,28 @@ def get_individual_ideal_peak(combined_wavs_by_communicators, peak_width_determi
     ideal_peaks_noise_receiver : dict
         A dictionary with the noise receiver as the key and the ideal peak as the value
     '''
-
-    ideal_peaks_noise_maker = {}
-    ideal_peaks_noise_receiver = {}
-
-
-    # Start resolving the data structure
+    # Prepare the data for the function calls to find the ideal peaks
+    # For the noise maker
     noise_maker_filtered_data_dict  = combined_wavs_by_communicators['by_maker']['filtered_data']
     noise_maker_peaks_indexes = combined_wavs_by_communicators['by_maker']['grouped_intervals']
+    ideal_peaks_noise_maker = __find_ideal_peaks(noise_maker_filtered_data_dict, noise_maker_peaks_indexes, peak_width_determination_method)
 
+    # For the noise receiver
     noise_receiver_filtered_data_dict = combined_wavs_by_communicators['by_receiver']['filtered_data']
     noise_receiver_peaks_indexes = combined_wavs_by_communicators['by_receiver']['grouped_intervals']
+    ideal_peaks_noise_receiver = __find_ideal_peaks(noise_receiver_filtered_data_dict, noise_receiver_peaks_indexes, peak_width_determination_method)
 
+    return ideal_peaks_noise_maker, ideal_peaks_noise_receiver
+
+
+def __find_ideal_peaks(filtered_data, grouped_intervals, peak_width_determination_method):
+    ideal_peaks = {}
     
-    for noise_maker_key in noise_maker_filtered_data_dict.keys():
+    for noise_maker_key in filtered_data.keys():
         
         # Grab the current mole rat data from all preprepared dictionaries
-        current_noise_maker_filtered_data = noise_maker_filtered_data_dict[noise_maker_key]
-        current_noise_maker_peaks_indexes = noise_maker_peaks_indexes[noise_maker_key]
+        current_individual_filtered_data = filtered_data[noise_maker_key]
+        current_individual_peaks_indexes = grouped_intervals[noise_maker_key]
 
         # Set a variable to use the chosen method to later call with the array of peak widths
         if peak_width_determination_method == 'min':
@@ -344,52 +348,55 @@ def get_individual_ideal_peak(combined_wavs_by_communicators, peak_width_determi
             raise NotImplementedError(f'Method {peak_width_determination_method} is not implemented. See documetation for supported methods.')
 
         # Find the peak width with the chosen method
-        current_ideal_peak_width = int(peak_width_determination_method_func([len(peak) for peak in current_noise_maker_peaks_indexes]))
+        current_ideal_peak_width = int(peak_width_determination_method_func([len(peak) for peak in current_individual_peaks_indexes]))
+        # The amount of padding from the left and right of the peak to make it the ideal peak width
+        pad_width = current_ideal_peak_width // 2
 
 
         # Trim all peaks to the determined width around the index of the peak
         trimmed_peaks = []
-        for peaks, indexes in zip(current_noise_maker_filtered_data, current_noise_maker_peaks_indexes):
-            print(f'filtered data length: {peaks.shape}')
-            print(f'indexes length: {len(indexes)}')
-            print(f'indexes length needs to be: {current_ideal_peak_width}')
+        for peak_data, curr_inteval in zip(current_individual_filtered_data, current_individual_peaks_indexes):
 
-            # Pad the peak if its not the same length as current_ideal_peak_width  
-            # Subtract the length of the peak from the ideal peak width,
-            # If the sign is negative, the peak is longer than the ideal peak width, so we trim it
-            # If the sign is positive, the peak is shorter than the ideal peak width, so we pad it
-            # In any case the math works out to be the same
-            diff = current_ideal_peak_width - len(peaks)
-            slice_strat = current_noise_maker_peaks_indexes[0] - diff//2
-            slice_end = current_noise_maker_peaks_indexes[0] + diff//2
+            # Find the middle value of the inrevals (the indexes in the filtered data where the peaks are located)
+            mid_peak_index = len(curr_inteval)//2
 
-            # Make sure the slices are within the bounds of the data
+            # Save the indexes so they can be changed in the case of an ideal peak width that required overflow
+            # This will happen in cases where pad_width >= len(indexes)//2
+            trim_strat_interval_index = mid_peak_index - pad_width
+            trim_end_interval_index = mid_peak_index + pad_width
+
+            # Check if the slices are within the bounds of the data
             # strat zeros in case of overflow to the left
-            # TODO: Continue from here
             strat_zeros = []
             
-            if slice_strat < 0:
-
-                slice_strat = 0
+            if trim_strat_interval_index < 0:
+                strat_zeros = np.zeros(np.abs(trim_strat_interval_index))
+                # Set the start point for taking values from the peak at the start of the peak
+                trim_strat_interval_index = 0
 
             # Same logic for the end zeros
             end_zeros = []
+
+            if trim_end_interval_index > len(curr_inteval):
+                # +1 since the otherwise the end_zeros will be one less than the required
+                end_zeros = np.zeros(trim_end_interval_index - len(curr_inteval) + 1)
+                # Set the end point for taking values from the peak at the end of the peak
+                trim_end_interval_index = len(curr_inteval) - 1
         
             # Add the zero arrays to the current trimmed peak
-
+            trimmed_peak = np.concatenate([strat_zeros, peak_data[curr_inteval[trim_strat_interval_index]:curr_inteval[trim_end_interval_index]], end_zeros])
+            trimmed_peaks.append(trimmed_peak)
 
 
         # Average the trimmed peaks
         ideal_peak = np.mean(trimmed_peaks, axis=0)
         # Save the ideal peak
-        ideal_peaks_noise_maker[noise_maker_key] = ideal_peak
+        ideal_peaks[noise_maker_key] = ideal_peak
 
 
-    # Do it later for the noise receiver
-    # noise_receiver_filtered_data = noise_receiver_filtered_data_dict[noise_receiver_key]
-    # noise_receiver_peaks_indexes = noise_receiver_peaks_indexes[noise_receiver_key]
+    return ideal_peaks
 
-    return ideal_peaks_noise_maker, ideal_peaks_noise_receiver
+
 
 
 def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both', n_rows=5):
