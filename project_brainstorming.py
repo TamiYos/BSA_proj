@@ -10,30 +10,42 @@ from scipy.signal import find_peaks, peak_widths
 from scipy.signal import convolve
 
 def main():
-    random.seed(5)
-    
-    if platform.system() == 'Windows':
-        folder_path = os.path.normcase('C:/Data/BSA_proj/Segmented_signals')
-    else:
-        folder_path = os.path.normcase('/Users/Omer/Downloads/Segmented_signals/')
+    random.seed(7)
+
+    folder_path = '/Users/Omer/Documents/DirectPhD/BSA/Final project/Signals/Segmented_signals'
 
     # Get a list of all files in the folder matching a specific pattern
     folders = glob.glob(os.path.join(folder_path, '*'))
-    folders_to_iter = random.sample(folders, 20)
+    folders_to_iter = folders # random.sample(folders, 200)
+    labeled_wavs, n = get_waves_and_labels(folders_to_iter)
 
-    # plot_spectograph_spectogram(folders_to_iter)
-    # plot_peak_patterns(folders_to_iter, plots=True)
-    # print(get_waves_and_labels(folders_to_iter))
-    # print(combine_wavs_by_communicators(folders_to_iter)['by_maker']['grouped_peaks'].keys())
+    files_ = []
+    for j, folder in enumerate(folders_to_iter[:1]):
+        # Retrieve the communication files in that folder ('segmented_i.wav')
+        files = glob.glob(os.path.join(folder, '*'))
+        files_.extend(files)
 
+    # print(len(get_waves_and_labels_from_files(files_)))
 
-    final_dict = combine_wavs_by_communicators(folders_to_iter)
+    final_dict = combine_wavs_by_communicators(folders)#, file_list=True)
+    
+    ideal_peaks = __find_ideal_peaks(final_dict['by_maker']['filtered_data'], final_dict['by_maker']['grouped_intervals'], 'mean')
 
-    ideal_picks = get_individual_ideal_peak(final_dict, peak_width_determination_method='mean')
-    #ideal_picks = get_individual_ideal_peak(final_dict, peak_width_determination_method='min')
+    test_data_by_makers, train_data_by_makers, test_data_by_receivers, train_data_by_receivers = split_test_train_folders(folders_to_iter, 400)
+    # print('wtf',len(train_data_by_makers) + len(test_data_by_makers))
+    train_convolution_results, test_convolution_results = make_distribution(train_data_by_makers, test_data_by_makers, file_list=True)
+    res = percentiles(train_convolution_results, test_convolution_results, ideal_peaks, percentile_threshold=85)
 
-    # print(len(final_dict['by_maker']['grouped_peaks']['BMR2']))
-    # plot_peak_on_grouped_data(final_dict)
+    fig, axes = plt.subplots(len(res), 1)
+    plt.subplots_adjust(hspace=0.5)
+    for i, tested_ind in enumerate(res.keys()):
+        ax = axes[i]
+        x_labels = res[tested_ind].keys()
+        heights = res[tested_ind].values()
+        ax.bar(x_labels, heights, color='r', alpha=0.5)
+        ax.set_title(f'tested individual is {tested_ind}')
+    
+    plt.show()
 
 
 def get_wav_data(file_path):
@@ -250,15 +262,16 @@ def get_waves_and_labels_from_files(files):
 
     return labeled_wavs
 
-def add_to_dict(dicts_list, key, list_of_data_lists): #data_dict, filtered_dict, peaks_dict, intervals_dict, widths_dict, heights_dict, key, data_list, filtered_list, peaks_list, intervals_list, widths_list, heights_list):
-    ''' dicts_list = [data_dict, filtered_dict, peaks_dict, intervals_dict, widths_dict, heights_dict, sample_numbers_dict]
-        lists_for_appending = [data_list, filtered_list, peaks_list, intervals_list, widths_list, heights_list, sample_numbers_list] '''
-    for i, D in enumerate(dicts_list):    
-        data_list = list_of_data_lists[i]
-        if key not in D.keys():
-            D[key] = data_list
-        else:
-            D[key].extend(data_list)
+# def add_to_dict(dicts_list, keys, list_of_data_lists): #data_dict, filtered_dict, peaks_dict, intervals_dict, widths_dict, heights_dict, key, data_list, filtered_list, peaks_list, intervals_list, widths_list, heights_list):
+#     ''' dicts_list = [data_dict, filtered_dict, peaks_dict, intervals_dict, widths_dict, heights_dict, sample_numbers_dict]
+#         lists_for_appending = [data_list, filtered_list, peaks_list, intervals_list, widths_list, heights_list, sample_numbers_list] '''
+#     for i, D in enumerate(dicts_list):    
+#         for key in keys:
+#             data_list = list_of_data_lists[i]
+#             if key not in D.keys():
+#                 D[key] = data_list
+#             else:
+#                 D[key].extend(data_list)
         
 
 def combine_wavs_by_communicators(to_iter, sigma=20, file_list=False):
@@ -287,10 +300,12 @@ def combine_wavs_by_communicators(to_iter, sigma=20, file_list=False):
         labeled_wavs = get_waves_and_labels_from_files(to_iter)
     else: 
         labeled_wavs = get_waves_and_labels(to_iter)[0]
+
     data_types = ['grouped_data', 'filtered_data', 'grouped_peaks', 'grouped_intervals', 'grouped_widths', 'grouped_heights', 'file_names']
     group_by = ['by_maker', 'by_receiver', 'by_both']
 
     final = {group : {data_type : {} for data_type in data_types} for group in group_by}
+    cnt = 0
 
     for wav_data, noise_maker, noise_receiver, files in labeled_wavs:
         peaks = []
@@ -300,6 +315,7 @@ def combine_wavs_by_communicators(to_iter, sigma=20, file_list=False):
         filtered = []
         file_names = []
         for i, wav_array in enumerate(wav_data):
+            cnt +=1
             filtered_data = gaussian_filter(wav_array, sigma=sigma)
             filtered.append(filtered_data)
             peak, interval, peak_wid, peak_height = find_peak_pattern(filtered_data)[:4]
@@ -308,17 +324,24 @@ def combine_wavs_by_communicators(to_iter, sigma=20, file_list=False):
             peak_widths.append(peak_wid)
             peak_heights.append(peak_height)
             file_names.append(files[i])
+            
+            if cnt > 2134 :
+                print(cnt)
 
         all_data = [wav_data, filtered, peaks, intervals, peak_widths, peak_heights, file_names]
         # Group WAV data arrays by noise maker and receiver names
         keys = [noise_maker, noise_receiver, (noise_maker, noise_receiver)]
         for i, group in enumerate(group_by):
-            D = final[group]
-            add_to_dict([D[data_type] for data_type in data_types], keys[i], all_data)
-
-        # for d in wav_data: # This nested loop proves the need for using lists instead of normal organized arrays :(((
-        #     if len(d) != 2500:
-        #         print(noise_maker, noise_receiver, len(d))
+            role_key = keys[i]
+            dict_grouped_by_role = final[group]
+            for j, data_type in enumerate(data_types):
+                new_data_to_add_by_type = all_data[j]
+                role_by_data_type = dict_grouped_by_role[data_type]
+                add_data_to = role_by_data_type.setdefault(role_key, [])
+                add_data_to.extend(new_data_to_add_by_type)
+                # add_to_dict([dict_grouped_by_role[data_type] for data_type in data_types], keys, all_data)
+    
+    # print(len(final['by_maker']['grouped_heights'][noise_maker]))
 
     return final 
 
@@ -481,9 +504,7 @@ def convolve_ideal_peak_over_filtered_data(final_dict, ideal_peaks, by='by_maker
         cnt=0
     ax.legend()
     ax.set_xlabel('Convolution Score')
-    plt.show()
-        
-        
+    plt.show()  
 
 
 def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both', n_rows=5):
@@ -528,7 +549,6 @@ def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both', n_row
 
 def convolution_results_hist_vals(grouped_peaks_dict, ideal_peaks):
 
-    data_keys = grouped_peaks_dict.keys()
     # print(data_keys)
     peak_keys = ideal_peaks.keys()
     convolution_results = {peak_key : {} for peak_key in peak_keys}
@@ -561,42 +581,42 @@ def make_distribution(train, test, by='by_maker', peak_width_determination_metho
 
     train_convolution_results = convolution_results_hist_vals(train_dict[by]['grouped_peaks'], ideal_peaks)
     test_convolution_results = convolution_results_hist_vals(test_peaks_dict, ideal_peaks)
-    # print(train_convolution_results)
-    # for i, ind1 in enumerate(train_convolution_results.keys()):
-    #     for j, ind2 in enumerate(ideal_peaks.keys()):
-    #         #print(train_convolution_results)
-    #         plt.hist(train_convolution_results[ind1][ind2], label='train', alpha=0.5)
-    #         plt.hist(test_convolution_results[ind1][ind2], color='r', label='test', alpha=0.5)
-    #         plt.xlabel('Conv score')
-    #         plt.title(f'tested individual : {ind1} ; ideal peak by : {ind2}')
-    #         plt.legend()
-
-    #         plt.show()
     
     return train_convolution_results, test_convolution_results
 
+
 def split_test_train_folders(folders_to_iter, n_tests):
     
-    n_folders = len(folders_to_iter)
-    all_file_data, n_files = get_waves_and_labels(folders_to_iter)
     labels_by_makers = []
     labels_by_receivers = []
     
-    for wav_data, noise_maker, noise_receiver, sample_number in all_file_data:
+    for j, folder in enumerate(folders_to_iter):
+        # Split folder path using underscores
+        parts = os.path.basename(folder).split('_')
+        
+        # Extract individuals' names
+        noise_maker = parts[0]
+        noise_receiver = parts[2]
+
         if noise_maker not in labels_by_makers:
-            labels_by_makers.append(noise_maker)
+            labels_by_makers.append(noise_maker[:4])
         if noise_receiver not in labels_by_receivers:
-            labels_by_receivers.append(noise_receiver)
+            labels_by_receivers.append(noise_receiver[:4])
+
+        if len(labels_by_makers) == 4 and len(labels_by_receivers) == 5:
+            break;
     
     n_files_per_ind_by_maker = n_tests // len(labels_by_makers)
     n_files_per_ind_by_receiver = n_tests // len(labels_by_receivers)
 
     n_files_by_makers = [n_files_per_ind_by_maker if i != len(labels_by_makers)-1 else (n_tests - n_files_per_ind_by_maker * (len(labels_by_makers) - 1)) for i in range(len(labels_by_makers))]
     n_files_by_receiver = [n_files_per_ind_by_receiver if i != len(labels_by_receivers)-1 else (n_tests - n_files_per_ind_by_receiver * (len(labels_by_receivers) - 1)) for i in range(len(labels_by_receivers))]
-
+    
     final_dict = combine_wavs_by_communicators(folders_to_iter)
-    dict_by_maker_filename = final_dict['by_maker']['file_names']
-    dict_by_receiver_filename = final_dict['by_receiver']['file_names']
+
+    # dict_by_maker_filename = final_dict['by_maker']['file_names']
+    print('LOOK', len(final_dict['by_maker']['file_names']['BMR2']))
+    # dict_by_receiver_filename = final_dict['by_receiver']['file_names']
 
     test_data_by_makers = [] #{maker : dict_by_maker_filename[maker][:n] for n in n_files_by_makers for maker in labels_by_makers}
     test_data_by_receivers = [] #{receiver : dict_by_receiver_filename[receiver][:n] for n in n_files_by_receiver for receiver in labels_by_receivers}
@@ -606,14 +626,14 @@ def split_test_train_folders(folders_to_iter, n_tests):
 
     for i, maker in enumerate(labels_by_makers):
         n = n_files_by_makers[i]
-        test_data_by_makers.extend(dict_by_maker_filename[maker][:n])
-        train_data_by_makers.extend(dict_by_maker_filename[maker][n:])
+        test_data_by_makers.extend(final_dict['by_maker']['file_names'][maker][:n])
+        train_data_by_makers.extend(final_dict['by_maker']['file_names'][maker][n:])
         # print(len(dict_by_maker_filename[maker]))
 
     for i, receiver in enumerate(labels_by_receivers):
         n = n_files_by_receiver[i]
-        test_data_by_receivers.extend(dict_by_receiver_filename[receiver][:n])
-        train_data_by_receivers.extend(dict_by_receiver_filename[receiver][n:])
+        test_data_by_receivers.extend(final_dict['by_receiver']['file_names'][receiver][:n])
+        train_data_by_receivers.extend(final_dict['by_receiver']['file_names'][receiver][n:])
         # print(len(dict_by_receiver_filename[receiver]))
 
     # print(n_files)
@@ -626,49 +646,13 @@ def percentiles(train_convolution_results, test_convolution_results, ideal_peaks
     tested_inds_accuracies = {tested_ind : {peak_ind : 0 for peak_ind in ideal_peaks.keys()} for tested_ind in test_convolution_results.keys()}
     for train_ind, convolution_scores_dict in train_convolution_results.items():
         for peak_ind in ideal_peaks.keys():
-            value_threshold = np.percentile(np.array(train_convolution_results[train_ind][peak_ind]), percentile_threshold)
+            value_threshold = np.percentile(np.array(train_convolution_results[peak_ind][peak_ind]), percentile_threshold)
             test_ind_array = np.array(test_convolution_results[train_ind][peak_ind])
             test_bigger_than_threshold = np.mean(test_ind_array > value_threshold)
-            # print(sum(test_ind_array > value_threshold) / len(test_ind_array), test_bigger_than_threshold)
             tested_inds_accuracies[train_ind][peak_ind] = test_bigger_than_threshold
     
     return tested_inds_accuracies
 
 
-random.seed(7)
-
-folder_path = '/Users/Omer/Documents/DirectPhD/BSA/Final project/Signals/Segmented_signals'
-
-# Get a list of all files in the folder matching a specific pattern
-folders = glob.glob(os.path.join(folder_path, '*'))
-folders_to_iter = folders # random.sample(folders, 200)
-# labeled_wavs = get_waves_and_labels(folders_to_iter)
-final_dict = combine_wavs_by_communicators(folders_to_iter)
-# print(final_dict['by_receiver']['grouped_data'].keys())
-# print(final_dict['by_maker']['sample_numbers'])
-
-ideal_peaks = __find_ideal_peaks(final_dict['by_maker']['filtered_data'], final_dict['by_maker']['grouped_intervals'], 'mean')
-# convolve_ideal_peak_over_filtered_data(final_dict, res, by='by_maker')
-
-test_data_by_makers, train_data_by_makers, test_data_by_receivers, train_data_by_receivers = split_test_train_folders(folders_to_iter, 400)
-# for maker, test_file_list in test_data_by_makers.items():
-    # train_file_list = train_data_by_makers[maker]
-train_convolution_results, test_convolution_results = make_distribution(train_data_by_makers, test_data_by_makers, file_list=True)
-res = percentiles(train_convolution_results, test_convolution_results, ideal_peaks, percentile_threshold=80)
-print(res)
-fig, axes = plt.subplots(len(res), 1)
-plt.subplots_adjust(hspace=0.5)
-for i, tested_ind in enumerate(res.keys()):
-    ax = axes[i]
-    x_labels = res[tested_ind].keys()
-    heights = res[tested_ind].values()
-    ax.bar(x_labels, heights, color='r', alpha=0.5)
-    ax.set_title(f'tested individual is {tested_ind}')
-    # ax.set_xticklabels(x_labels)
-    # ax.set_ylabel('')
-plt.show()
-
-
-
-# if __name__ == '__main__':
-#     main()
+if __name__ == '__main__':
+    main()
