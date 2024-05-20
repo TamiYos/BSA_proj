@@ -11,13 +11,13 @@ from scipy.signal import convolve
 
 def main():
 
-    # TODO, change this before running the code
+    # TODO, change this before running the code to the folder path of Segmented_signals (from the Mole Rat project in the drive)
     # This is the only needed change (:
-    folder_path = '/Users/Omer/Documents/DirectPhD/BSA/Final project/Signals/Segmented_signals'
-
+    folder_path = 'C:/Data/BSA_proj/Segmented_signals'
     
     # Get a list of all files in the folder matching a specific pattern
-    folders_to_analyse = glob.glob(os.path.join(folder_path, '*'))
+    folders = glob.glob(os.path.join(folder_path, '*'))
+    folders_to_analyse = [folder for folder in folders if 'json' not in folder and 'csv' not in folder]
 
     # Get the data from the files into the needed data structure for ease of use
     final_dict = combine_wavs_by_communicators(folders_to_analyse)
@@ -52,7 +52,6 @@ def main():
     axes[-1].set_xlabel('Ideal peak individual', fontsize=14)
     axes[len(res_maker)//2].set_ylabel('Fraction over percentile threshold', fontsize=14)
     fig.suptitle('Fraction of convolution scores per noise maker\nover percentile threshold of 85%', fontsize=18)
-    plt.savefig('/Users/Omer/Documents/DirectPhD/BSA/Final project/plot3.png')
     plt.show()
 
     fig, axes = plt.subplots(len(res_recipient), 1, figsize=(10,15))
@@ -68,7 +67,6 @@ def main():
     axes[-1].set_xlabel('Ideal peak individual', fontsize=14)
     axes[len(res_recipient)//2].set_ylabel('Fraction over percentile threshold', fontsize=14)
     fig.suptitle('Fraction of convolution scores per noise listener\nover percentile threshold of 85%', fontsize=18)
-    plt.savefig('/Users/Omer/Documents/DirectPhD/BSA/Final project/plot4.png')
     plt.show()
 
 
@@ -227,6 +225,11 @@ def get_waves_and_labels_from_files(files):
 
     # Loop over all the interaction folders
     for i, file in enumerate(files):
+
+        # There what seems to be a bug in windows where the file path contains \\ instead of /, this is a workaround
+        if platform.system() == 'Windows':
+            file = file.replace('\\', '/')
+
         # Split folder path using underscores
         parts = os.path.basename(file[:file.rfind('/')]).split('_')
         
