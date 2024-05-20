@@ -10,6 +10,7 @@ from scipy.signal import find_peaks, peak_widths
 from scipy.signal import convolve
 
 def main():
+
     random.seed(7)
 
     folder_path = '/Users/Omer/Documents/DirectPhD/BSA/Final project/Signals/Segmented_signals'
@@ -17,118 +18,70 @@ def main():
     # Get a list of all files in the folder matching a specific pattern
     folders = glob.glob(os.path.join(folder_path, '*'))
     folders_to_iter = folders # random.sample(folders, 200)
-    labeled_wavs, n = get_waves_and_labels(folders_to_iter)
 
-    files_ = []
-    for j, folder in enumerate(folders_to_iter[:1]):
-        # Retrieve the communication files in that folder ('segmented_i.wav')
-        files = glob.glob(os.path.join(folder, '*'))
-        files_.extend(files)
-
-    # print(len(get_waves_and_labels_from_files(files_)))
-
-    final_dict = combine_wavs_by_communicators(folders)#, file_list=True)
+    final_dict = combine_wavs_by_communicators(folders)
     
-    ideal_peaks = __find_ideal_peaks(final_dict['by_maker']['filtered_data'], final_dict['by_maker']['grouped_intervals'], 'mean')
+    ideal_peaks_maker = __find_ideal_peaks(final_dict['by_maker']['filtered_data'], final_dict['by_maker']['grouped_intervals'], 'mean')
 
     test_data_by_makers, train_data_by_makers, test_data_by_receivers, train_data_by_receivers = split_test_train_folders(folders_to_iter, 400)
-    # print('wtf',len(train_data_by_makers) + len(test_data_by_makers))
-    train_convolution_results, test_convolution_results = make_distribution(train_data_by_makers, test_data_by_makers, file_list=True)
-    res = percentiles(train_convolution_results, test_convolution_results, ideal_peaks, percentile_threshold=85)
+    train_convolution_results_maker, test_convolution_results_maker = make_distribution(train_data_by_makers, test_data_by_makers, file_list=True)
+    res_maker = percentiles(train_convolution_results_maker, test_convolution_results_maker, ideal_peaks_maker, percentile_threshold=85)
 
-    fig, axes = plt.subplots(len(res), 1)
-    plt.subplots_adjust(hspace=0.5)
-    for i, tested_ind in enumerate(res.keys()):
-        ax = axes[i]
-        x_labels = res[tested_ind].keys()
-        heights = res[tested_ind].values()
-        ax.bar(x_labels, heights, color='r', alpha=0.5)
-        ax.set_title(f'tested individual is {tested_ind}')
+    # plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both')
+    # convolve_ideal_peak_over_filtered_data(final_dict, ideal_peaks_receiver, by='by_receiver')
+
+    ideal_peaks_receiver = __find_ideal_peaks(final_dict['by_receiver']['filtered_data'], final_dict['by_receiver']['grouped_intervals'], 'mean')
+    train_convolution_results_receiver, test_convolution_results_receiver = make_distribution(test_data_by_receivers, train_data_by_receivers, by='by_receiver', file_list=True)
+    res_recipient = percentiles(train_convolution_results_receiver, test_convolution_results_receiver, ideal_peaks_receiver, percentile_threshold=85)
     
+    fig, axes = plt.subplots(len(res_maker), 1, figsize=(10,15))
+    plt.subplots_adjust(hspace=0.5)
+    colors = ['indianred', 'darkorange', 'teal', 'royalblue']
+    for i, tested_ind in enumerate(res_maker.keys()):
+        ax = axes[i]
+        x_labels = res_maker[tested_ind].keys()
+        heights = res_maker[tested_ind].values()
+        ax.bar(x_labels, heights, color=colors[i], alpha=0.5)
+        ax.set_title(f'Tested noise maker is {tested_ind}', fontsize=16)
+        ax.tick_params(axis='both', which='major', labelsize=12)
+    axes[-1].set_xlabel('Ideal peak individual', fontsize=14)
+    axes[len(res_maker)//2].set_ylabel('Fraction over percentile threshold', fontsize=14)
+    fig.suptitle('Fraction of convolution scores per noise maker\nover percentile threshold of 85%', fontsize=18)
+    plt.savefig('/Users/Omer/Documents/DirectPhD/BSA/Final project/plot3.png')
+    plt.show()
+
+    fig, axes = plt.subplots(len(res_recipient), 1, figsize=(10,15))
+    plt.subplots_adjust(hspace=0.5)
+    colors = ['indianred', 'darkorange', 'teal', 'royalblue', 'indigo']
+    for i, tested_ind in enumerate(res_recipient.keys()):
+        ax = axes[i]
+        x_labels = res_recipient[tested_ind].keys()
+        heights = res_recipient[tested_ind].values()
+        ax.bar(x_labels, heights, color=colors[i], alpha=0.5)
+        ax.set_title(f'Tested noise listener is {tested_ind}', fontsize=16)
+        ax.tick_params(axis='both', which='major', labelsize=12)
+    axes[-1].set_xlabel('Ideal peak individual', fontsize=14)
+    axes[len(res_recipient)//2].set_ylabel('Fraction over percentile threshold', fontsize=14)
+    fig.suptitle('Fraction of convolution scores per noise listener\nover percentile threshold of 85%', fontsize=18)
+    plt.savefig('/Users/Omer/Documents/DirectPhD/BSA/Final project/plot4.png')
     plt.show()
 
 
 def get_wav_data(file_path):
     # Read the WAV file
     sample_rate, data = wavfile.read(file_path)
-    # print(sample_rate)
-    # print(len(data), data.dtype)
     # Calculate duration
     duration = len(data) / float(sample_rate)
 
     return duration, sample_rate, data
 
 
-def plot_spectograph_spectogram(folders_to_iter):
-
-    for folder in folders_to_iter:
-        #print(folder)
-        files = glob.glob(os.path.join(folder, '*'))
-
-        fig, axes = plt.subplots(len(files), 5, figsize=(18,10))
-        plt.subplots_adjust(wspace=0.4, hspace=0.3)
-
-        # Loop over each file
-        for i, file in enumerate(files):
-
-            duration, sample_rate, data = get_wav_data(file)            
-            dt = 1/sample_rate # difference from one time point to the next
-            ax = axes[i, 0]
-            ax.plot(np.arange(0, data.shape[-1]*dt, dt), data)
-            ax.set_ylabel('Voltage (V)')
-            axes[0, 0].set_title("Time domain")#, segment {}".format(i))
-        
-            sigma = 50
-            smoothed_curve = gaussian_filter(data, sigma=sigma)
-            ax = axes[i, 1]
-            ax.plot(np.arange(0, data.shape[-1]*dt, dt), smoothed_curve)
-            ax.set_ylabel('Voltage (V)')
-            axes[0, 1].set_title("Time domain (filtered)")
-
-            N = len(data) # number of samples
-            T = N*dt # total time sample -> T = NΔ
-            # print(T)
-            data_transformed = np.fft.rfft(data)
-            spectrum = (2 * dt ** 2 / T * data_transformed  * data_transformed.conj()).real
-            faxis = np.arange(len(spectrum)) / T
-            decibel_scaled_data = 10 * np.log10(spectrum / max(spectrum))
-            
-            # print("faxis size is:", len(faxis))
-            ax = axes[i, 2]
-            ax.plot(faxis[:100], decibel_scaled_data[:100])
-            ax.set_ylabel('dB')
-            axes[0, 2].set_title("Freq domain scaled")#, segment {}".format(i))
-
-            ax = axes[i, 3]
-            ax.plot(faxis[:100], spectrum[:100])
-            ax.set_ylabel('dB')
-            axes[0, 3].set_title("Freq domain NOT scaled")#, segment {}".format(i))
-
-            ax = axes[i, 4]
-            # Compute spectrogram
-            spec, frequencies, times, image = ax.specgram(data, NFFT=1024, Fs=sample_rate)
-            ax.set_ylabel('Frequency (Hz)')
-            ax.set_ylim(0, 2000)
-            axes[0, 4].set_title("Spectogram")#, segment {}".format(i))
-
-            axes[-1,0].set_xlabel('Time (seconds)')
-            axes[-1,1].set_xlabel('Time (seconds)')
-            axes[-1,2].set_xlabel('Freq (Hz)')
-            axes[-1,3].set_xlabel('Freq (Hz)')
-            axes[-1,4].set_xlabel('Time (s)')
-                
-        fig.suptitle(folder)
-        plt.show()
-    
-
 def find_peak_pattern(wav_data, div_width_by=1.5):
 
     # Find the indices of the peaks in the filtered data
     filtered_peaks = find_peaks(wav_data)[0]
-    # print('peaks:', filtered_peaks)#, '')
     # Assuming the "best peak" is the one with the greatest amplitude, find the index of that peak
     best_peak_index = wav_data[filtered_peaks].argmax()
-    # print(filtered_peaks, smoothed_curve[filtered_peaks], best_peak_index)
 
     # Find the estimated widths of each peak (similar to wavelength)
     peak_widths_data = peak_widths(wav_data, filtered_peaks)[0]
@@ -139,57 +92,11 @@ def find_peak_pattern(wav_data, div_width_by=1.5):
     end = min(int(filtered_peaks[best_peak_index] + peak_wid/div_width_by), len(wav_data))
     # The peak interval indices will be np.arange(start, end+1, 1) but to *plot it* we need to multiply it by dt
     interval = np.arange(start, end, 1)
-    # print(interval)
     idealized_peak = wav_data[interval]
     
     # Find the height of the peak
     peak_height = idealized_peak.max() - np.mean(np.array([idealized_peak[0], idealized_peak[-1]]))
     return idealized_peak, interval, peak_wid, peak_height, filtered_peaks, best_peak_index
-
-
-def plot_peak_patterns(folders_to_iter, sigma=30, plots=False):
-
-    for folder in folders_to_iter:
-        files = glob.glob(os.path.join(folder, '*'))
-        
-        if plots:
-            fig, axes = plt.subplots(len(files), 2, figsize=(18,10))
-            plt.subplots_adjust(wspace=0.4, hspace=0.3)
-
-        # Loop over each file
-        for i, file in enumerate(files):
-            
-            # Get the wav file data
-            duration, sample_rate, data = get_wav_data(file)     
-            dt = 1/sample_rate # difference from one time point to the next
-            # Find the peaks present in our data - NON FILTERED 
-            # peaks, _ = find_peaks(data) # Commented out because I only want the idealized peak of the filtered data 
-            
-            # Filter data (gaussian filter)
-            smoothed_curve = gaussian_filter(data, sigma=sigma)
-            # Get peak data
-            idealized_peak, interval, peak_wid, peak_height, filtered_peaks, best_peak_index =  find_peak_pattern(smoothed_curve)
-
-            if plots:
-                # Plot the raw data
-                ax = axes[i, 0]
-                ax.plot(np.arange(0, data.shape[-1]*dt, dt), data)
-                ax.set_ylabel('Voltage (V)')
-                axes[0, 0].set_title("Time domain")
-                
-                # Plot the filtered data
-                ax = axes[i, 1]
-                ax.plot(np.arange(0, data.shape[-1]*dt, dt), smoothed_curve)
-                ax.set_ylabel('Voltage (V)')
-                axes[0, 1].set_title("Time domain (filtered)")
-                
-                # Visualizing the maximal peak
-                ax.scatter(filtered_peaks[best_peak_index]*dt, smoothed_curve[filtered_peaks[best_peak_index]], c='r')
-                ax.plot(interval*dt, idealized_peak, ls='--', c='crimson', lw=3)
-            
-        if plots: 
-            fig.suptitle(folder)
-            plt.show()
 
 
 def get_waves_and_labels(folders_to_iter):
@@ -229,8 +136,6 @@ def get_waves_and_labels(folders_to_iter):
         labeled_wavs[j][1], labeled_wavs[j][2] = communicators[j, 0], communicators[j, 1]
         labeled_wavs[j][3] = files # saving the file name - not mandatory
     
-    # print(total_len)
-
     return labeled_wavs, total_len
 
 def get_waves_and_labels_from_files(files):
@@ -243,7 +148,6 @@ def get_waves_and_labels_from_files(files):
     for i, file in enumerate(files):
         # Split folder path using underscores
         parts = os.path.basename(file[:file.rfind('/')]).split('_')
-        # print(parts)
         
         # Extract individuals' names
         noise_maker = parts[0]
@@ -262,17 +166,6 @@ def get_waves_and_labels_from_files(files):
 
     return labeled_wavs
 
-# def add_to_dict(dicts_list, keys, list_of_data_lists): #data_dict, filtered_dict, peaks_dict, intervals_dict, widths_dict, heights_dict, key, data_list, filtered_list, peaks_list, intervals_list, widths_list, heights_list):
-#     ''' dicts_list = [data_dict, filtered_dict, peaks_dict, intervals_dict, widths_dict, heights_dict, sample_numbers_dict]
-#         lists_for_appending = [data_list, filtered_list, peaks_list, intervals_list, widths_list, heights_list, sample_numbers_list] '''
-#     for i, D in enumerate(dicts_list):    
-#         for key in keys:
-#             data_list = list_of_data_lists[i]
-#             if key not in D.keys():
-#                 D[key] = data_list
-#             else:
-#                 D[key].extend(data_list)
-        
 
 def combine_wavs_by_communicators(to_iter, sigma=20, file_list=False):
     '''Groups all arrays of wav data in dictionaries by:
@@ -325,8 +218,8 @@ def combine_wavs_by_communicators(to_iter, sigma=20, file_list=False):
             peak_heights.append(peak_height)
             file_names.append(files[i])
             
-            if cnt > 2134 :
-                print(cnt)
+            # if cnt > 2134 :
+            #     print(cnt)
 
         all_data = [wav_data, filtered, peaks, intervals, peak_widths, peak_heights, file_names]
         # Group WAV data arrays by noise maker and receiver names
@@ -339,9 +232,6 @@ def combine_wavs_by_communicators(to_iter, sigma=20, file_list=False):
                 role_by_data_type = dict_grouped_by_role[data_type]
                 add_data_to = role_by_data_type.setdefault(role_key, [])
                 add_data_to.extend(new_data_to_add_by_type)
-                # add_to_dict([dict_grouped_by_role[data_type] for data_type in data_types], keys, all_data)
-    
-    # print(len(final['by_maker']['grouped_heights'][noise_maker]))
 
     return final 
 
@@ -457,7 +347,7 @@ def __find_ideal_peaks(filtered_data, grouped_intervals, peak_width_determinatio
     return ideal_peaks
 
 
-def convolve_ideal_peak_over_filtered_data(final_dict, ideal_peaks, by='by_maker'):
+def convolve_ideal_peak_over_filtered_data(final_dict, ideal_peaks, by='by_receiver'):
     
     data_dict = final_dict[by]
     data_keys = data_dict['grouped_data'].keys()
@@ -470,44 +360,33 @@ def convolve_ideal_peak_over_filtered_data(final_dict, ideal_peaks, by='by_maker
         curr_dict = convolution_results[peak_individual]
         
         for data_individual in data_keys:
-            # print(data_individual)
             filtered_data_peaks = data_dict['grouped_peaks'][data_individual]
 
             for i, sample in enumerate(filtered_data_peaks):
                 matched_filter_output = convolve(sample, peak, mode='same')
-                # print(list(matched_filter_output))
 
                 if data_individual not in curr_dict.keys():
                     curr_dict[data_individual] = [np.max(matched_filter_output)]
                 else:
                     curr_dict[data_individual].append(np.max(matched_filter_output))
-                # plt.plot(np.arange(matched_filter_output.shape[-1]), matched_filter_output)
-                # plt.show()
     
-    # total_scores = 
-    print(convolution_results.keys())
-    fig, axes = plt.subplots(len(peak_keys), 1, sharex=True)
-    plt.subplots_adjust(hspace=0.3)
-    conv_keys = peak_keys
-    colors = ['red', 'forestgreen', 'blue', 'black']
-    cnt = 0
-    # conv_res = list(convolution_results.values())
-    # print(conv_res[0])
-    for i, peak_ind in enumerate(conv_keys):
+    fig, axes = plt.subplots(len(peak_keys), 1, figsize=(10,15))
+    plt.subplots_adjust(hspace=0.6)
+    colors = ['indianred', 'darkorange', 'teal', 'royalblue', 'indigo']
+
+    for i, peak_ind in enumerate(peak_keys):
         ax = axes[i]
-        # for tested_pair, convolution_scores in convolution_results.items():
-        # conv_res = convolution_results[conv_keys[i]]
-        for data_ind, conv_res in convolution_results[peak_ind].items():
-            ax.hist(conv_res, bins=35, color=colors[cnt], label=data_ind, alpha=0.5)
-            ax.set_title(f'Peak individual: {peak_ind}')# ; Actual data is of {data_ind}')
-            cnt +=1
-        cnt=0
-    ax.legend()
-    ax.set_xlabel('Convolution Score')
+        ax.hist(convolution_results[peak_ind][peak_ind], bins=20, color=colors[i], alpha=0.5)
+        ax.set_title(f'Convolution score histogram of {peak_ind}', fontsize=16)
+
+        ax.set_xlabel('Convolution Score', fontsize=14)
+        ax.set_ylabel('Frequency', fontsize=14)
+        ax.tick_params(axis='both', which='major', labelsize=12)
+
     plt.show()  
 
 
-def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both', n_rows=5):
+def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both', n_rows=3):
     
     data_dict = final_dict[by]
     keys = data_dict['grouped_data'].keys()
@@ -515,41 +394,39 @@ def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both', n_row
 
     for i, individual in enumerate(keys):
         n_samples = min(n_rows, len(data_dict['grouped_data'][individual]))
-        fig, axes = plt.subplots(n_samples, 2, figsize=(12,8))
-        plt.subplots_adjust(wspace=0.4, hspace=0.4)
+        fig, axes = plt.subplots(n_samples, 2, figsize=(16,10))
+        plt.subplots_adjust(wspace=0.3, hspace=0.35)
 
         raw_data = data_dict['grouped_data'][individual]
         filtered_data = data_dict['filtered_data'][individual]
         peaks = data_dict['grouped_peaks'][individual]
         peak_intervals = data_dict['grouped_intervals'][individual]
-        peak_heights = data_dict['grouped_heights'][individual]
 
-        axes[0,0].set_title('Unfiltered Signal')
-        axes[0,1].set_title('Filtered Signal')
-        axes[-1, 0].set_xlabel('Time (s)')
-        axes[-1, 1].set_xlabel('Time (s)')
-        axes[n_samples//2, 0].set_ylabel('Amplitude (Voltage)')
+        axes[0,0].set_title('Unfiltered Signal', fontsize=18)
+        axes[0,1].set_title('Filtered Signal', fontsize=18)
 
         for sample in range(n_samples):
 
             ax = axes[sample, 0]
-            ax.plot(np.arange(0, raw_data[sample].shape[-1])*dt, raw_data[sample])
-            ax.plot(peak_intervals[sample]*dt, peaks[sample], c='r', lw=4, alpha=0.6)
+            ax.plot(np.arange(0, raw_data[sample].shape[-1])*dt, raw_data[sample], c='cornflowerblue')
+            ax.plot(peak_intervals[sample]*dt, peaks[sample], c='mediumvioletred', lw=4, alpha=0.9, ls='--')
+            ax.set_xlabel('Time (s)', fontsize=16)
+            ax.set_ylabel('Amplitude (Voltage)', fontsize=16)
+            ax.tick_params(axis='both', which='major', labelsize=14)
             
             ax = axes[sample, 1]
-            ax.plot(np.arange(0, raw_data[sample].shape[-1])*dt, filtered_data[sample])
-            ax.plot(peak_intervals[sample]*dt, peaks[sample], c='r', lw=4, alpha=0.6)
-            
-            # print(peak_heights[sample])
+            ax.plot(np.arange(0, raw_data[sample].shape[-1])*dt, filtered_data[sample], c='cornflowerblue')
+            ax.plot(peak_intervals[sample]*dt, peaks[sample], c='mediumvioletred', lw=4, alpha=0.9, ls='--')
+            ax.set_xlabel('Time (s)', fontsize=16)
+            ax.tick_params(axis='both', which='major', labelsize=14)
 
-        fig.suptitle(individual)
-        ax.legend(['data', 'idealized peak'], loc='best')
+        fig.suptitle(individual, fontsize=20)
+        axes[0,1].legend(['data', 'idealized peak'], loc='best', fontsize=13)
         plt.show()
 
 
 def convolution_results_hist_vals(grouped_peaks_dict, ideal_peaks):
 
-    # print(data_keys)
     peak_keys = ideal_peaks.keys()
     convolution_results = {peak_key : {} for peak_key in peak_keys}
 
@@ -559,9 +436,7 @@ def convolution_results_hist_vals(grouped_peaks_dict, ideal_peaks):
             curr_dict = convolution_results[peak_ind]
             
             for i, sample in enumerate(data_peaks):
-                # print(sample, peak)
                 matched_filter_output = convolve(sample, peak, mode='same')
-                # print(list(matched_filter_output))
 
                 if data_ind not in curr_dict.keys():
                     curr_dict[data_ind] = [np.max(matched_filter_output)]
@@ -600,12 +475,12 @@ def split_test_train_folders(folders_to_iter, n_tests):
 
         if noise_maker not in labels_by_makers:
             labels_by_makers.append(noise_maker[:4])
-        if noise_receiver not in labels_by_receivers:
+        if noise_receiver[:4] not in labels_by_receivers:
             labels_by_receivers.append(noise_receiver[:4])
 
         if len(labels_by_makers) == 4 and len(labels_by_receivers) == 5:
             break;
-    
+ 
     n_files_per_ind_by_maker = n_tests // len(labels_by_makers)
     n_files_per_ind_by_receiver = n_tests // len(labels_by_receivers)
 
@@ -614,29 +489,21 @@ def split_test_train_folders(folders_to_iter, n_tests):
     
     final_dict = combine_wavs_by_communicators(folders_to_iter)
 
-    # dict_by_maker_filename = final_dict['by_maker']['file_names']
-    print('LOOK', len(final_dict['by_maker']['file_names']['BMR2']))
-    # dict_by_receiver_filename = final_dict['by_receiver']['file_names']
+    test_data_by_makers = [] 
+    test_data_by_receivers = [] 
 
-    test_data_by_makers = [] #{maker : dict_by_maker_filename[maker][:n] for n in n_files_by_makers for maker in labels_by_makers}
-    test_data_by_receivers = [] #{receiver : dict_by_receiver_filename[receiver][:n] for n in n_files_by_receiver for receiver in labels_by_receivers}
-
-    train_data_by_makers = [] #{maker : dict_by_maker_filename[maker][n:] for n in n_files_by_makers for maker in labels_by_makers}
-    train_data_by_receivers = [] #{receiver : dict_by_receiver_filename[receiver][n:] for n in n_files_by_receiver for receiver in labels_by_receivers}
+    train_data_by_makers = [] 
+    train_data_by_receivers = []
 
     for i, maker in enumerate(labels_by_makers):
         n = n_files_by_makers[i]
         test_data_by_makers.extend(final_dict['by_maker']['file_names'][maker][:n])
         train_data_by_makers.extend(final_dict['by_maker']['file_names'][maker][n:])
-        # print(len(dict_by_maker_filename[maker]))
 
     for i, receiver in enumerate(labels_by_receivers):
         n = n_files_by_receiver[i]
         test_data_by_receivers.extend(final_dict['by_receiver']['file_names'][receiver][:n])
         train_data_by_receivers.extend(final_dict['by_receiver']['file_names'][receiver][n:])
-        # print(len(dict_by_receiver_filename[receiver]))
-
-    # print(n_files)
     
     return test_data_by_makers, train_data_by_makers, test_data_by_receivers, train_data_by_receivers
 
