@@ -11,29 +11,34 @@ from scipy.signal import convolve
 
 def main():
 
-    random.seed(7)
-
+    # TODO, change this before running the code
+    # This is the only needed change (:
     folder_path = '/Users/Omer/Documents/DirectPhD/BSA/Final project/Signals/Segmented_signals'
 
-    # Get a list of all files in the folder matching a specific pattern
-    folders = glob.glob(os.path.join(folder_path, '*'))
-    folders_to_iter = folders # random.sample(folders, 200)
-
-    final_dict = combine_wavs_by_communicators(folders)
     
-    ideal_peaks_maker = __find_ideal_peaks(final_dict['by_maker']['filtered_data'], final_dict['by_maker']['grouped_intervals'], 'mean')
+    # Get a list of all files in the folder matching a specific pattern
+    folders_to_analyse = glob.glob(os.path.join(folder_path, '*'))
 
-    test_data_by_makers, train_data_by_makers, test_data_by_receivers, train_data_by_receivers = split_test_train_folders(folders_to_iter, 400)
+    # Get the data from the files into the needed data structure for ease of use
+    final_dict = combine_wavs_by_communicators(folders_to_analyse)
+    
+    # Get the idealized peaks for each individual under each role
+    ideal_peaks_maker, ideal_peaks_receiver = get_individual_ideal_peak(final_dict, peak_width_determination_method='mean')
+
+    # Split the data into test and train sets
+    test_data_by_makers, train_data_by_makers, test_data_by_receivers, train_data_by_receivers = split_test_train_folders(folders_to_analyse, 400)
+
+    # Generate the probability distribution of the convolution scores to later on make predictions
     train_convolution_results_maker, test_convolution_results_maker = make_distribution(train_data_by_makers, test_data_by_makers, file_list=True)
+    
+    # See where the test scores fall in the distribution of the train scores and if they are above a certain percentile threshold
     res_maker = percentiles(train_convolution_results_maker, test_convolution_results_maker, ideal_peaks_maker, percentile_threshold=85)
 
-    # plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both')
-    # convolve_ideal_peak_over_filtered_data(final_dict, ideal_peaks_receiver, by='by_receiver')
-
-    ideal_peaks_receiver = __find_ideal_peaks(final_dict['by_receiver']['filtered_data'], final_dict['by_receiver']['grouped_intervals'], 'mean')
+    # Do the same as above but for the noise receivers
     train_convolution_results_receiver, test_convolution_results_receiver = make_distribution(test_data_by_receivers, train_data_by_receivers, by='by_receiver', file_list=True)
     res_recipient = percentiles(train_convolution_results_receiver, test_convolution_results_receiver, ideal_peaks_receiver, percentile_threshold=85)
     
+    # Plot the results
     fig, axes = plt.subplots(len(res_maker), 1, figsize=(10,15))
     plt.subplots_adjust(hspace=0.5)
     colors = ['indianred', 'darkorange', 'teal', 'royalblue']
@@ -68,6 +73,25 @@ def main():
 
 
 def get_wav_data(file_path):
+    '''
+    Description
+    ------------
+    This function reads a WAV file and returns the duration, sample rate and the data in the file.
+
+    Parameters
+    ------------
+    file_path : str
+        The path to the WAV file to be read.
+    
+    Returns
+    ------------
+    duration : float
+        The duration of the WAV file in seconds.
+    sample_rate : int
+        The sample rate of the WAV file.
+    data : np.array
+        The data in the WAV file.
+    '''
     # Read the WAV file
     sample_rate, data = wavfile.read(file_path)
     # Calculate duration
@@ -77,7 +101,34 @@ def get_wav_data(file_path):
 
 
 def find_peak_pattern(wav_data, div_width_by=1.5):
+    '''
+    Description
+    ------------
+    Get the most prominent peak in the data (as the one with the greatest amplitude) and return it along with the interval it is in,
+    the width of the peak and the height of the peak.
 
+    Parameters
+    ------------
+    wav_data : np.array
+        The data in which to find the peak pattern.
+    div_width_by : float
+        The value to divide the peak width by to get the interval around the peak.
+    
+    Returns
+    ------------
+    idealized_peak : np.array
+        The peak data.
+    interval : np.array
+        The interval in which the peak is located.
+    peak_wid : float
+        The width of the peak.
+    peak_height : float
+        The height of the peak.
+    filtered_peaks : np.array
+        The indices of the peaks in the filtered data.
+    best_peak_index : int
+        The index of the best peak.
+    '''
     # Find the indices of the peaks in the filtered data
     filtered_peaks = find_peaks(wav_data)[0]
     # Assuming the "best peak" is the one with the greatest amplitude, find the index of that peak
@@ -90,7 +141,7 @@ def find_peak_pattern(wav_data, div_width_by=1.5):
     # Finding the indices of the entire peak, from its estimated start to end, according to the peak itself and its width
     start = int(filtered_peaks[best_peak_index] - peak_wid/div_width_by) # The denominator in the division here and below can be decreased/increased if we want more/less data points around that peak
     end = min(int(filtered_peaks[best_peak_index] + peak_wid/div_width_by), len(wav_data))
-    # The peak interval indices will be np.arange(start, end+1, 1) but to *plot it* we need to multiply it by dt
+    # The peak interval indices will be np.arange(start, end, 1) but to *plot it* we need to multiply it by dt
     interval = np.arange(start, end, 1)
     idealized_peak = wav_data[interval]
     
@@ -100,6 +151,21 @@ def find_peak_pattern(wav_data, div_width_by=1.5):
 
 
 def get_waves_and_labels(folders_to_iter):
+    '''
+    Description
+    ------------
+    This function reads the WAV files in the folders and returns the data in the files along with the labels of the individuals communicating.
+
+    Parameters
+    ------------
+    folders_to_iter : list
+        A list of the paths to the folders containing the WAV files.
+    
+    Returns
+    ------------
+    labeled_wavs : list
+        A list of the data in the WAV files along with the labels of the individuals communicating.
+    '''
 
     n_samples = len(folders_to_iter)
     communicators = np.empty(shape=(n_samples, 2), dtype='<U4')
@@ -138,8 +204,23 @@ def get_waves_and_labels(folders_to_iter):
     
     return labeled_wavs, total_len
 
-def get_waves_and_labels_from_files(files):
 
+def get_waves_and_labels_from_files(files):
+    '''
+    Description
+    ------------
+    This function reads the WAV files in the given files and returns the data in the files along with the labels of the individuals communicating.
+
+    Parameters
+    ------------
+    files : list
+        A list of the paths to the WAV files.
+    
+    Returns
+    ------------
+    labeled_wavs : list
+        A list of the data in the WAV files along with the labels of the individuals communicating.
+    '''
     n_files = len(files)
     communicators = np.empty(shape=(n_files, 2), dtype='<U4')
     labeled_wavs = [[None, None, None, None] for _ in range(n_files)]
@@ -168,26 +249,40 @@ def get_waves_and_labels_from_files(files):
 
 
 def combine_wavs_by_communicators(to_iter, sigma=20, file_list=False):
-    '''Groups all arrays of wav data in dictionaries by:
+    '''
+    Description
+    ------------
+    Groups all arrays of wav data in dictionaries by:
         1. noise makers
         2. noise receivers
         3. both labels
-        Also, groups all arrays of the peaks in dictionaries in the same order.
-        Finally returns a dictionary: 
+
+    Parameters
+    ------------
+    to_iter : list
+        A list of the paths to the folders containing the WAV files.
+    sigma : int
+        The sigma value for the gaussian filter.
+    file_list : bool
+        A flag to indicate whether the data is in a list of files or in folders.
+    
+    Returns
+    ------------
+    dictionary with the following structure: 
+    {
+        'by_maker' : 
         {
-            'by_maker' : 
-            {
-                'grouped_data' : the data in the wav file, all the files from all folders grouped by noise maker,
-                'filtered_data' : the same as in grouped_data but with gaussian filter applied,
-                'grouped_peaks' : list of the peak values from the file,
-                'grouped_intervals' : list of the peak indexes as they appear in the filtered data and the grouped data lists
-                'grouped_widths' : list of the peak widths (how long in time the peak lasted),
-                'grouped_heights' : list of the peak heights (the amplitude of the peak as the distance from the noise floor), 
-                'sample_numbers' : 
-            },
-            'by_receiver' : { The same as above but grouped by noise receiver},
-            'by_both' : { The same as above but grouped by both noise maker and receiver}
-        }
+            'grouped_data' : the data in the wav file, all the files from all folders grouped by noise maker,
+            'filtered_data' : the same as in grouped_data but with gaussian filter applied,
+            'grouped_peaks' : list of the peak values from the file,
+            'grouped_intervals' : list of the peak indexes as they appear in the filtered data and the grouped data lists
+            'grouped_widths' : list of the peak widths (how long in time the peak lasted),
+            'grouped_heights' : list of the peak heights (the amplitude of the peak as the distance from the noise floor), 
+            'file_names' : list of the file names
+        },
+        'by_receiver' : { The same as above but grouped by noise receiver},
+        'by_both' : { The same as above but grouped by both noise maker and receiver}
+    }
     '''
     if file_list:
         labeled_wavs = get_waves_and_labels_from_files(to_iter)
@@ -217,9 +312,6 @@ def combine_wavs_by_communicators(to_iter, sigma=20, file_list=False):
             peak_widths.append(peak_wid)
             peak_heights.append(peak_height)
             file_names.append(files[i])
-            
-            # if cnt > 2134 :
-            #     print(cnt)
 
         all_data = [wav_data, filtered, peaks, intervals, peak_widths, peak_heights, file_names]
         # Group WAV data arrays by noise maker and receiver names
@@ -277,6 +369,7 @@ def get_individual_ideal_peak(combined_wavs_by_communicators, peak_width_determi
 
 
 def __find_ideal_peaks(filtered_data, grouped_intervals, peak_width_determination_method):
+    '''Helper function to get_individual_ideal_peak. Should be used directly.'''
     ideal_peaks = {}
     
     for noise_maker_key in filtered_data.keys():
@@ -332,7 +425,6 @@ def __find_ideal_peaks(filtered_data, grouped_intervals, peak_width_determinatio
                 trim_end_interval_index = len(curr_inteval) - 1
             
             
-            # print('len:', len(curr_inteval), '. start:', trim_strat_interval_index, '. end:', trim_end_interval_index)
             # Add the zero arrays to the current trimmed peak
             trimmed_peak = np.concatenate([strat_zeros, peak_data[curr_inteval[trim_strat_interval_index]:curr_inteval[trim_end_interval_index]], end_zeros])
             trimmed_peaks.append(trimmed_peak)
@@ -348,10 +440,28 @@ def __find_ideal_peaks(filtered_data, grouped_intervals, peak_width_determinatio
 
 
 def convolve_ideal_peak_over_filtered_data(final_dict, ideal_peaks, by='by_receiver'):
+    '''
+    Description
+    ------------
+    This function will convolve the ideal peaks over the peaks of the filtered data of the individuals and plot the results.
+
+    Parameters
+    ------------
+    final_dict : dict
+        The dictionary returned by the combined_wavs_by_communicators function
+    ideal_peaks : dict
+        The dictionary returned by the get_individual_ideal_peak function
+    by : str
+        The key to the dictionary in final_dict to use, either 'by_maker', 'by_receiver' or 'by_both'
+    
+    Returns
+    ------------
+    None    
+    '''
     
     data_dict = final_dict[by]
     data_keys = data_dict['grouped_data'].keys()
-    print(data_keys)
+    
     peak_keys = ideal_peaks.keys()
     convolution_results = {peak_key : {} for peak_key in peak_keys}
 
@@ -387,7 +497,26 @@ def convolve_ideal_peak_over_filtered_data(final_dict, ideal_peaks, by='by_recei
 
 
 def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both', n_rows=3):
-    
+    '''
+    Description
+    ------------
+    This function will plot the grouped data of the individuals along with the idealized peaks.
+
+    Parameters
+    ------------
+    final_dict : dict
+        The dictionary returned by the combined_wavs_by_communicators function
+    sample_rate : int
+        The sample rate of the data
+    by : str
+        The key to the dictionary in final_dict to use, either 'by_maker', 'by_receiver' or 'by_both'
+    n_rows : int
+        The number of samples to plot
+
+    Returns
+    ------------
+    None    
+    '''
     data_dict = final_dict[by]
     keys = data_dict['grouped_data'].keys()
     dt = 1/sample_rate
@@ -426,7 +555,23 @@ def plot_peak_on_grouped_data(final_dict, sample_rate=44100, by='by_both', n_row
 
 
 def convolution_results_hist_vals(grouped_peaks_dict, ideal_peaks):
+    '''
+    Description
+    ------------
+    This function will convolve the ideal peaks over the peaks of the filtered data of the individuals and return the convolution results.
 
+    Parameters
+    ------------
+    grouped_peaks_dict : dict
+        The dictionary returned by the combined_wavs_by_communicators function
+    ideal_peaks : dict
+        The dictionary returned by the get_individual_ideal_peak function
+    
+    Returns
+    ------------
+    convolution_results : dict
+        A dictionary with the convolution results
+    '''
     peak_keys = ideal_peaks.keys()
     convolution_results = {peak_key : {} for peak_key in peak_keys}
 
@@ -447,7 +592,29 @@ def convolution_results_hist_vals(grouped_peaks_dict, ideal_peaks):
 
 
 def make_distribution(train, test, by='by_maker', peak_width_determination_method='mean', file_list=False, sigma=20):
+    '''
+    Description
+    ------------
+    This function will combine the WAV files of the train and test sets and then calculate the convolution results of the test set over the train set.
 
+    Parameters
+    ------------
+    train : list
+        A list of the paths to the folders containing the WAV files for the train set.
+    test : list
+        A list of the paths to the folders containing the WAV files for the test set.
+    by : str
+        The key to the dictionary in final_dict to use, either 'by_maker', 'by_receiver' or 'by_both'
+    peak_width_determination_method : str
+        The method used to calculate the ideal peak width, either 'mean', 'median' or 'min'. See get_individual_ideal_peak for more information.
+    
+    Returns
+    ------------
+    train_convolution_results : dict
+        A dictionary with the convolution results of the train set
+    test_convolution_results : dict
+        A dictionary with the convolution results of the test set
+    '''
     train_dict = combine_wavs_by_communicators(train, sigma=sigma, file_list=file_list)
     test_dict = combine_wavs_by_communicators(test, sigma=sigma, file_list=file_list)
     
@@ -461,7 +628,29 @@ def make_distribution(train, test, by='by_maker', peak_width_determination_metho
 
 
 def split_test_train_folders(folders_to_iter, n_tests):
+    '''
+    Description
+    ------------
+    This function will split the folders into test and train sets.
+
+    Parameters
+    ------------
+    folders_to_iter : list
+        A list of the paths to the folders containing the WAV files.
+    n_tests : int
+        The number of test files to use.
     
+    Returns
+    ------------
+    test_data_by_makers : list
+        A list of the paths to the test files by noise maker.
+    train_data_by_makers : list
+        A list of the paths to the train files by noise maker.
+    test_data_by_receivers : list
+        A list of the paths to the test files by noise receiver.
+    train_data_by_receivers : list
+        A list of the paths to the train files by noise receiver.
+    '''
     labels_by_makers = []
     labels_by_receivers = []
     
@@ -479,7 +668,7 @@ def split_test_train_folders(folders_to_iter, n_tests):
             labels_by_receivers.append(noise_receiver[:4])
 
         if len(labels_by_makers) == 4 and len(labels_by_receivers) == 5:
-            break;
+            break
  
     n_files_per_ind_by_maker = n_tests // len(labels_by_makers)
     n_files_per_ind_by_receiver = n_tests // len(labels_by_receivers)
@@ -509,7 +698,28 @@ def split_test_train_folders(folders_to_iter, n_tests):
 
 
 def percentiles(train_convolution_results, test_convolution_results, ideal_peaks, percentile_threshold=90):
+    '''
+    Description
+    ------------
+    This function will calculate the fraction of the test convolution scores that are above a certain percentile threshold of the train convolution scores
+    of an individual with itself.
+
+    Parameters
+    ------------
+    train_convolution_results : dict
+        A dictionary with the convolution results of the train set
+    test_convolution_results : dict
+        A dictionary with the convolution results of the test set
+    ideal_peaks : dict
+        The dictionary returned by the get_individual_ideal_peak function
+    percentile_threshold : int
+        The percentile threshold to use
     
+    Returns
+    ------------
+    tested_inds_accuracies : dict
+        A dictionary with the fraction of the test convolution scores that are above a certain percentile threshold of the train convolution scores
+    '''
     tested_inds_accuracies = {tested_ind : {peak_ind : 0 for peak_ind in ideal_peaks.keys()} for tested_ind in test_convolution_results.keys()}
     for train_ind, convolution_scores_dict in train_convolution_results.items():
         for peak_ind in ideal_peaks.keys():
